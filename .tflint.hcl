@@ -13,6 +13,6 @@ plugin "aws" {
 
 plugin "dave-says" {
   enabled = true
-  version = "0.3.0"
+  version = "0.3.2"
   source  = "github.com/skwashd/tflint-ruleset-dave-says"
 }
