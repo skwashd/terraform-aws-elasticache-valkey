@@ -44,6 +44,64 @@ resource "aws_secretsmanager_secret_version" "admin" {
   secret_string_wo_version = 1
 }
 
+data "aws_iam_policy_document" "admin_secret" {
+  statement {
+    sid = "AllowWrite"
+    actions = [
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:UpdateSecret",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = local.admin_secret_writer_arns
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(var.admin_secret_access.readers) > 0 ? [1] : []
+
+    content {
+      sid = "AllowRead"
+      actions = [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret",
+      ]
+      resources = ["*"]
+
+      principals {
+        type        = "AWS"
+        identifiers = var.admin_secret_access.readers
+      }
+    }
+  }
+
+  statement {
+    sid       = "DenyOtherReads"
+    effect    = "Deny"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = local.admin_secret_reader_exemptions
+    }
+  }
+}
+
+resource "aws_secretsmanager_secret_policy" "admin" {
+  secret_arn = aws_secretsmanager_secret.admin.arn
+  policy     = data.aws_iam_policy_document.admin_secret.json
+}
+
 resource "aws_secretsmanager_secret" "standard" {
   name                    = "${var.name}-valkey-standard"
   description             = "Standard user credentials for the ${var.name} Valkey cluster."
@@ -64,4 +122,62 @@ resource "aws_secretsmanager_secret_version" "standard" {
   })
 
   secret_string_wo_version = 1
+}
+
+data "aws_iam_policy_document" "standard_secret" {
+  statement {
+    sid = "AllowWrite"
+    actions = [
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:UpdateSecret",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = local.standard_secret_writer_arns
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(var.standard_secret_access.readers) > 0 ? [1] : []
+
+    content {
+      sid = "AllowRead"
+      actions = [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret",
+      ]
+      resources = ["*"]
+
+      principals {
+        type        = "AWS"
+        identifiers = var.standard_secret_access.readers
+      }
+    }
+  }
+
+  statement {
+    sid       = "DenyOtherReads"
+    effect    = "Deny"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = local.standard_secret_reader_exemptions
+    }
+  }
+}
+
+resource "aws_secretsmanager_secret_policy" "standard" {
+  secret_arn = aws_secretsmanager_secret.standard.arn
+  policy     = data.aws_iam_policy_document.standard_secret.json
 }

@@ -1,7 +1,7 @@
 resource "aws_security_group" "this" {
   name        = "${var.name}-valkey"
   description = "Controls network access to the ${var.name} Valkey cluster."
-  vpc_id      = data.aws_subnet.first.vpc_id
+  vpc_id      = local.vpc_id
 
   tags = merge(var.tags, {
     Name = "${var.name}-valkey"

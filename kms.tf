@@ -27,3 +27,65 @@ resource "aws_kms_alias" "secrets" {
   name          = "alias/${var.name}-valkey-secrets"
   target_key_id = aws_kms_key.secrets.key_id
 }
+
+data "aws_iam_policy_document" "kms" {
+  statement {
+    sid       = "KeyAdministration"
+    actions   = ["kms:*"]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = local.kms_admin_arns
+    }
+  }
+
+  statement {
+    sid = "DelegateCryptoToIam"
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+      "kms:List*",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = [local.account_root_arn]
+    }
+  }
+
+  statement {
+    sid = "DelegateGrantsToIam"
+    actions = [
+      "kms:CreateGrant",
+      "kms:ListGrants",
+      "kms:RevokeGrant",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = [local.account_root_arn]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "kms:GrantIsForAWSResource"
+      values   = ["true"]
+    }
+  }
+}
+
+resource "aws_kms_key_policy" "cache" {
+  key_id = aws_kms_key.cache.id
+  policy = data.aws_iam_policy_document.kms.json
+}
+
+resource "aws_kms_key_policy" "secrets" {
+  key_id = aws_kms_key.secrets.id
+  policy = data.aws_iam_policy_document.kms.json
+}

@@ -9,6 +9,7 @@ Opinionated Terraform module for an AWS ElastiCache **Valkey** replication group
 - **T-shirt instance sizing** — `xsmall` through `xlarge` maps to a sensible node type.
 - **Randomised maintenance window** — 2-hour window on Sunday morning UTC, picked at first apply and stable thereafter.
 - **Caller-owned ingress** — the module creates the security group and the minimum self-referencing rules the cluster needs for intra-cluster traffic, then outputs the SG ID so you wire your own ingress.
+- **Locked-down keys and secrets** — both CMKs are administered only by the deploying principal (plus any `kms_admin_arns`), with cryptographic use delegated to IAM. Each secret carries its own resource policy that denies `GetSecretValue` to everyone except that secret's configured readers (and the deployer), and grants writes to its configured writers plus the deployer — so the `admin` secret can be locked to a tighter set of readers than `standard`.
 
 ## Hardcoded defaults
 
@@ -104,6 +105,46 @@ This requires Terraform `>= 1.11.0`. The password still lives in module state on
 
 The bump is what tells Terraform to push the freshly-regenerated password through write-only — without it the new value sits in `random_password` state but never reaches ElastiCache or Secrets Manager.
 
+## Access control
+
+### KMS key administration
+
+Both CMKs (`aws_kms_key.cache`, `aws_kms_key.secrets`) share one key policy with three statements:
+
+1. **Administration** (`kms:*`) — granted only to the deploying principal (resolved via `aws_iam_session_context` so it's the underlying role, not a session ARN) plus any ARNs in `kms_admin_arns`.
+2. **Cryptographic use** (`Encrypt`, `Decrypt`, `ReEncrypt*`, `GenerateDataKey*`, `DescribeKey`, `List*`) — delegated to the account, so IAM policies in the account decide who can actually use the keys.
+3. **Grants** (`CreateGrant`, `ListGrants`, `RevokeGrant`) — delegated to the account, restricted to `kms:GrantIsForAWSResource = true` (this is what lets ElastiCache create the grant it needs to use `cache`'s key on your behalf).
+
+The account root is **deliberately not** a key administrator — only crypto and grants are delegated to it. This means:
+
+- If you ever retire the deploying role without first adding a durable replacement to `kms_admin_arns`, the keys become unmanageable except through AWS Support. Add a break-glass admin via `kms_admin_arns` before rotating deploy roles.
+- Do not set `bypass_policy_lockout_safety_check` to work around this — the module's admin statement always includes the current caller, so the lockout check passes on every apply without it.
+
+### Secret read/write policies
+
+Each secret (`admin`, `standard`) has its **own** resource policy, controlled independently via `admin_secret_access` and `standard_secret_access`:
+
+```hcl
+module "valkey" {
+  # ...
+
+  admin_secret_access = {
+    readers = ["arn:aws:iam::111122223333:role/valkey-ops"]
+  }
+
+  standard_secret_access = {
+    readers = ["arn:aws:iam::111122223333:role/app"]
+    writers = ["arn:aws:iam::111122223333:role/rotation-lambda"]
+  }
+}
+```
+
+- `readers` — principals allowed `GetSecretValue`/`DescribeSecret`. The policy **denies** `GetSecretValue` to every other principal (an always-on `Deny` keyed on `aws:PrincipalArn`), so an empty `readers` list means only the deploying principal can read that secret.
+- `writers` — additional principals allowed `PutSecretValue`/`UpdateSecret`/`DescribeSecret`. The deploying principal is always included so the module can manage the secret.
+- Reader/writer ARNs must be **IAM role or user ARNs** (the form `aws:PrincipalArn` evaluates to for an assumed-role session), never assumed-role *session* ARNs (`arn:...:assumed-role/Name/session`) — a session ARN will never match and that reader is denied.
+- Readers must **also** hold `kms:Decrypt` on `secrets_kms_key_arn` in their own IAM policy. The key policy delegates crypto to IAM rather than granting it directly, so the resource policy alone is not enough to decrypt the secret payload.
+- The deploying principal is always exempt from the read `Deny`, because the AWS provider still calls `GetSecretValue` during `plan`/`refresh` for write-only secret versions (this is expected to converge with upstream provider behaviour over time, tracked as hashicorp/terraform-provider-aws#42383).
+
 ## Maintenance window
 
 Maintenance is pinned to **Sunday** with a 2-hour window. The start time is randomised at first apply (somewhere in the **00:00–03:59 UTC** range) and stays put for the life of the module.
@@ -156,8 +197,12 @@ No modules.
 | [aws_kms_alias.secrets](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_alias) | resource |
 | [aws_kms_key.cache](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_key) | resource |
 | [aws_kms_key.secrets](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_key) | resource |
+| [aws_kms_key_policy.cache](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_key_policy) | resource |
+| [aws_kms_key_policy.secrets](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_key_policy) | resource |
 | [aws_secretsmanager_secret.admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret.standard](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
+| [aws_secretsmanager_secret_policy.admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_policy) | resource |
+| [aws_secretsmanager_secret_policy.standard](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_policy) | resource |
 | [aws_secretsmanager_secret_version.admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws_secretsmanager_secret_version.standard](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws_security_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
@@ -168,17 +213,26 @@ No modules.
 | [random_password.admin](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random_password.default](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random_password.standard](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
+| [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
+| [aws_iam_policy_document.admin_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.kms](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.standard_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_session_context.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_session_context) | data source |
+| [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
 | [aws_subnet.first](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/subnet) | data source |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_admin_secret_access"></a> [admin\_secret\_access](#input\_admin\_secret\_access) | Access control for the admin-credentials secret (full +@all access). readers: IAM role/user ARNs (aws:PrincipalArn form -- NOT assumed-role session ARNs) allowed to GetSecretValue; every other principal is denied, and readers must also hold kms:Decrypt on the secrets CMK (see secrets\_kms\_key\_arn output). writers: additional ARNs allowed to PutSecretValue/UpdateSecret (the deploy caller is always a writer). Default {} means only the deploy caller can read or write this secret. | <pre>object({<br/>    readers = optional(list(string), [])<br/>    writers = optional(list(string), [])<br/>  })</pre> | `{}` | no |
 | <a name="input_engine_version"></a> [engine\_version](#input\_engine\_version) | Valkey engine version, in MAJOR.MINOR format. The major component is used to derive the parameter group family (e.g. "9.0" -> "valkey9"). Minor versions upgrade automatically. | `string` | `"9.0"` | no |
+| <a name="input_kms_admin_arns"></a> [kms\_admin\_arns](#input\_kms\_admin\_arns) | Additional IAM role or user ARNs granted full administrative (kms:*) access to the module's KMS keys, on top of the current caller (always an administrator). Cryptographic use is delegated to IAM separately. ARNs must be existing principals. Empty (default) makes the caller the sole key administrator. | `list(string)` | `[]` | no |
 | <a name="input_name"></a> [name](#input\_name) | Name prefix applied to every resource the module creates. Must be lowercase kebab-case and short enough to fit within ElastiCache and Secrets Manager name limits (<= 32 chars). Used verbatim, so pick something like "<app>-<env>". | `string` | n/a | yes |
 | <a name="input_num_replicas"></a> [num\_replicas](#input\_num\_replicas) | Number of read replicas to provision behind the primary. 0 means single-node, no HA. Setting > 0 enables Multi-AZ and automatic failover. | `number` | `0` | no |
 | <a name="input_parameter_group_parameters"></a> [parameter\_group\_parameters](#input\_parameter\_group\_parameters) | Map of Valkey parameters to override on the module-managed parameter group. Use this for tuning eviction policy, keyspace notifications, etc. Keys/values map directly to ElastiCache parameter names and values. | `map(string)` | `{}` | no |
 | <a name="input_size"></a> [size](#input\_size) | T-shirt size that selects the node instance type. xsmall: cache.t4g.micro, small: cache.t4g.small, medium: cache.t4g.medium, large: cache.m7g.large, xlarge: cache.m7g.xlarge. | `string` | `"small"` | no |
+| <a name="input_standard_secret_access"></a> [standard\_secret\_access](#input\_standard\_secret\_access) | Access control for the standard-user-credentials secret (+@all -@admin -@dangerous). readers: IAM role/user ARNs (aws:PrincipalArn form -- NOT assumed-role session ARNs) allowed to GetSecretValue; every other principal is denied, and readers must also hold kms:Decrypt on the secrets CMK (see secrets\_kms\_key\_arn output). writers: additional ARNs allowed to PutSecretValue/UpdateSecret (the deploy caller is always a writer). Default {} means only the deploy caller can read or write this secret. | <pre>object({<br/>    readers = optional(list(string), [])<br/>    writers = optional(list(string), [])<br/>  })</pre> | `{}` | no |
 | <a name="input_subnet_ids"></a> [subnet\_ids](#input\_subnet\_ids) | Subnets the ElastiCache subnet group covers. Must all live in the same VPC. The VPC is derived from the first subnet, so all subnets must be in that VPC. | `list(string)` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every taggable resource the module creates. Must include an "environment" key. | `map(string)` | n/a | yes |
 
