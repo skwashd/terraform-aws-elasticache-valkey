@@ -163,6 +163,10 @@ The script runs `terraform fmt -recursive -check -diff`, `terraform validate`, `
 # Generated Docs
 
 <!-- BEGIN_TF_DOCS -->
+
+
+----
+
 ## Requirements
 
 | Name | Version |
@@ -177,6 +181,37 @@ The script runs `terraform fmt -recursive -check -diff`, `terraform validate`, `
 | ---- | ------- |
 | <a name="provider_aws"></a> [aws](#provider\_aws) | 6.45.0 |
 | <a name="provider_random"></a> [random](#provider\_random) | 3.9.0 |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_name"></a> [name](#input\_name) | Name prefix applied to every resource the module creates. Must be lowercase kebab-case and short enough to fit within ElastiCache and Secrets Manager name limits (<= 32 chars). Used verbatim, so pick something like "<app>-<env>". | `string` | n/a | yes |
+| <a name="input_subnet_ids"></a> [subnet\_ids](#input\_subnet\_ids) | Subnets the ElastiCache subnet group covers. Must all live in the same VPC. The VPC is derived from the first subnet, so all subnets must be in that VPC. | `list(string)` | n/a | yes |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every taggable resource the module creates. Must include an "environment" key. | `map(string)` | n/a | yes |
+| <a name="input_admin_secret_access"></a> [admin\_secret\_access](#input\_admin\_secret\_access) | Access control for the admin-credentials secret (full +@all access). readers: IAM role/user ARNs (aws:PrincipalArn form -- NOT assumed-role session ARNs) allowed to GetSecretValue; every other principal is denied, and readers must also hold kms:Decrypt on the secrets CMK (see secrets\_kms\_key\_arn output). writers: additional ARNs allowed to PutSecretValue/UpdateSecret (the deploy caller is always a writer). Default {} means only the deploy caller can read or write this secret. | <pre>object({<br/>    readers = optional(list(string), [])<br/>    writers = optional(list(string), [])<br/>  })</pre> | `{}` | no |
+| <a name="input_engine_version"></a> [engine\_version](#input\_engine\_version) | Valkey engine version, in MAJOR.MINOR format. The major component is used to derive the parameter group family (e.g. "9.0" -> "valkey9"). Minor versions upgrade automatically. | `string` | `"9.0"` | no |
+| <a name="input_kms_admin_arns"></a> [kms\_admin\_arns](#input\_kms\_admin\_arns) | Additional IAM role or user ARNs granted full administrative (kms:*) access to the module's KMS keys, on top of the current caller (always an administrator). Cryptographic use is delegated to IAM separately. ARNs must be existing principals. Empty (default) makes the caller the sole key administrator. | `list(string)` | `[]` | no |
+| <a name="input_num_replicas"></a> [num\_replicas](#input\_num\_replicas) | Number of read replicas to provision behind the primary. 0 means single-node, no HA. Setting > 0 enables Multi-AZ and automatic failover. | `number` | `0` | no |
+| <a name="input_parameter_group_parameters"></a> [parameter\_group\_parameters](#input\_parameter\_group\_parameters) | Map of Valkey parameters to override on the module-managed parameter group. Use this for tuning eviction policy, keyspace notifications, etc. Keys/values map directly to ElastiCache parameter names and values. | `map(string)` | `{}` | no |
+| <a name="input_size"></a> [size](#input\_size) | T-shirt size that selects the node instance type. xsmall: cache.t4g.micro, small: cache.t4g.small, medium: cache.t4g.medium, large: cache.m7g.large, xlarge: cache.m7g.xlarge. | `string` | `"small"` | no |
+| <a name="input_standard_secret_access"></a> [standard\_secret\_access](#input\_standard\_secret\_access) | Access control for the standard-user-credentials secret (+@all -@admin -@dangerous). readers: IAM role/user ARNs (aws:PrincipalArn form -- NOT assumed-role session ARNs) allowed to GetSecretValue; every other principal is denied, and readers must also hold kms:Decrypt on the secrets CMK (see secrets\_kms\_key\_arn output). writers: additional ARNs allowed to PutSecretValue/UpdateSecret (the deploy caller is always a writer). Default {} means only the deploy caller can read or write this secret. | <pre>object({<br/>    readers = optional(list(string), [])<br/>    writers = optional(list(string), [])<br/>  })</pre> | `{}` | no |
+| <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC ID the ElastiCache cluster is deployed into. Must match the VPC of the provided subnets. Only needed if subnets are from a different account. | `string` | `null` | no |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_admin_user_secret_arn"></a> [admin\_user\_secret\_arn](#output\_admin\_user\_secret\_arn) | ARN of the Secrets Manager secret holding the admin user's credentials. |
+| <a name="output_cache_kms_key_arn"></a> [cache\_kms\_key\_arn](#output\_cache\_kms\_key\_arn) | ARN of the customer-managed KMS key encrypting the replication group at rest. |
+| <a name="output_port"></a> [port](#output\_port) | TCP port the Valkey cluster listens on. |
+| <a name="output_primary_endpoint_address"></a> [primary\_endpoint\_address](#output\_primary\_endpoint\_address) | Address of the primary node. Use this for writes and (when num\_replicas == 0) all traffic. |
+| <a name="output_reader_endpoint_address"></a> [reader\_endpoint\_address](#output\_reader\_endpoint\_address) | Reader endpoint that load-balances across read replicas. Empty string when num\_replicas == 0. |
+| <a name="output_replication_group_id"></a> [replication\_group\_id](#output\_replication\_group\_id) | Identifier of the ElastiCache replication group. |
+| <a name="output_secrets_kms_key_arn"></a> [secrets\_kms\_key\_arn](#output\_secrets\_kms\_key\_arn) | ARN of the customer-managed KMS key encrypting the Secrets Manager secrets. |
+| <a name="output_security_group_id"></a> [security\_group\_id](#output\_security\_group\_id) | ID of the security group attached to the cluster. Attach your own ingress rules to this SG to grant access. |
+| <a name="output_user_group_id"></a> [user\_group\_id](#output\_user\_group\_id) | Identifier of the ElastiCache RBAC user group attached to the replication group. |
+| <a name="output_user_secret_arn"></a> [user\_secret\_arn](#output\_user\_secret\_arn) | ARN of the Secrets Manager secret holding the standard (non-admin) user's credentials. |
 
 ## Modules
 
@@ -220,34 +255,4 @@ No modules.
 | [aws_iam_session_context.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_session_context) | data source |
 | [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
 | [aws_subnet.first](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/subnet) | data source |
-
-## Inputs
-
-| Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_admin_secret_access"></a> [admin\_secret\_access](#input\_admin\_secret\_access) | Access control for the admin-credentials secret (full +@all access). readers: IAM role/user ARNs (aws:PrincipalArn form -- NOT assumed-role session ARNs) allowed to GetSecretValue; every other principal is denied, and readers must also hold kms:Decrypt on the secrets CMK (see secrets\_kms\_key\_arn output). writers: additional ARNs allowed to PutSecretValue/UpdateSecret (the deploy caller is always a writer). Default {} means only the deploy caller can read or write this secret. | <pre>object({<br/>    readers = optional(list(string), [])<br/>    writers = optional(list(string), [])<br/>  })</pre> | `{}` | no |
-| <a name="input_engine_version"></a> [engine\_version](#input\_engine\_version) | Valkey engine version, in MAJOR.MINOR format. The major component is used to derive the parameter group family (e.g. "9.0" -> "valkey9"). Minor versions upgrade automatically. | `string` | `"9.0"` | no |
-| <a name="input_kms_admin_arns"></a> [kms\_admin\_arns](#input\_kms\_admin\_arns) | Additional IAM role or user ARNs granted full administrative (kms:*) access to the module's KMS keys, on top of the current caller (always an administrator). Cryptographic use is delegated to IAM separately. ARNs must be existing principals. Empty (default) makes the caller the sole key administrator. | `list(string)` | `[]` | no |
-| <a name="input_name"></a> [name](#input\_name) | Name prefix applied to every resource the module creates. Must be lowercase kebab-case and short enough to fit within ElastiCache and Secrets Manager name limits (<= 32 chars). Used verbatim, so pick something like "<app>-<env>". | `string` | n/a | yes |
-| <a name="input_num_replicas"></a> [num\_replicas](#input\_num\_replicas) | Number of read replicas to provision behind the primary. 0 means single-node, no HA. Setting > 0 enables Multi-AZ and automatic failover. | `number` | `0` | no |
-| <a name="input_parameter_group_parameters"></a> [parameter\_group\_parameters](#input\_parameter\_group\_parameters) | Map of Valkey parameters to override on the module-managed parameter group. Use this for tuning eviction policy, keyspace notifications, etc. Keys/values map directly to ElastiCache parameter names and values. | `map(string)` | `{}` | no |
-| <a name="input_size"></a> [size](#input\_size) | T-shirt size that selects the node instance type. xsmall: cache.t4g.micro, small: cache.t4g.small, medium: cache.t4g.medium, large: cache.m7g.large, xlarge: cache.m7g.xlarge. | `string` | `"small"` | no |
-| <a name="input_standard_secret_access"></a> [standard\_secret\_access](#input\_standard\_secret\_access) | Access control for the standard-user-credentials secret (+@all -@admin -@dangerous). readers: IAM role/user ARNs (aws:PrincipalArn form -- NOT assumed-role session ARNs) allowed to GetSecretValue; every other principal is denied, and readers must also hold kms:Decrypt on the secrets CMK (see secrets\_kms\_key\_arn output). writers: additional ARNs allowed to PutSecretValue/UpdateSecret (the deploy caller is always a writer). Default {} means only the deploy caller can read or write this secret. | <pre>object({<br/>    readers = optional(list(string), [])<br/>    writers = optional(list(string), [])<br/>  })</pre> | `{}` | no |
-| <a name="input_subnet_ids"></a> [subnet\_ids](#input\_subnet\_ids) | Subnets the ElastiCache subnet group covers. Must all live in the same VPC. The VPC is derived from the first subnet, so all subnets must be in that VPC. | `list(string)` | n/a | yes |
-| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every taggable resource the module creates. Must include an "environment" key. | `map(string)` | n/a | yes |
-
-## Outputs
-
-| Name | Description |
-| ---- | ----------- |
-| <a name="output_admin_user_secret_arn"></a> [admin\_user\_secret\_arn](#output\_admin\_user\_secret\_arn) | ARN of the Secrets Manager secret holding the admin user's credentials. |
-| <a name="output_cache_kms_key_arn"></a> [cache\_kms\_key\_arn](#output\_cache\_kms\_key\_arn) | ARN of the customer-managed KMS key encrypting the replication group at rest. |
-| <a name="output_port"></a> [port](#output\_port) | TCP port the Valkey cluster listens on. |
-| <a name="output_primary_endpoint_address"></a> [primary\_endpoint\_address](#output\_primary\_endpoint\_address) | Address of the primary node. Use this for writes and (when num\_replicas == 0) all traffic. |
-| <a name="output_reader_endpoint_address"></a> [reader\_endpoint\_address](#output\_reader\_endpoint\_address) | Reader endpoint that load-balances across read replicas. Empty string when num\_replicas == 0. |
-| <a name="output_replication_group_id"></a> [replication\_group\_id](#output\_replication\_group\_id) | Identifier of the ElastiCache replication group. |
-| <a name="output_secrets_kms_key_arn"></a> [secrets\_kms\_key\_arn](#output\_secrets\_kms\_key\_arn) | ARN of the customer-managed KMS key encrypting the Secrets Manager secrets. |
-| <a name="output_security_group_id"></a> [security\_group\_id](#output\_security\_group\_id) | ID of the security group attached to the cluster. Attach your own ingress rules to this SG to grant access. |
-| <a name="output_user_group_id"></a> [user\_group\_id](#output\_user\_group\_id) | Identifier of the ElastiCache RBAC user group attached to the replication group. |
-| <a name="output_user_secret_arn"></a> [user\_secret\_arn](#output\_user\_secret\_arn) | ARN of the Secrets Manager secret holding the standard (non-admin) user's credentials. |
 <!-- END_TF_DOCS -->
