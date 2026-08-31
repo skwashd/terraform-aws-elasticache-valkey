@@ -1,5 +1,5 @@
 data "aws_subnet" "first" {
-  count = var.vpc_id == null ? 1 : 0
+  count = var.vpc_id == "" ? 1 : 0
 
   id = var.subnet_ids[0]
 }
