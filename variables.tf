@@ -100,6 +100,7 @@ variable "tags" {
 variable "vpc_id" {
   description = "VPC ID the ElastiCache cluster is deployed into. Must match the VPC of the provided subnets. Only needed if subnets are from a different account."
   type        = string
+  nullable    = true
   default     = null
 
   validation {
