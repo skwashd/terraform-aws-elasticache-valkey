@@ -100,10 +100,10 @@ variable "tags" {
 variable "vpc_id" {
   description = "VPC ID the ElastiCache cluster is deployed into. Must match the VPC of the provided subnets. Only needed if subnets are from a different account."
   type        = string
-  default     = null
+  default     = ""
 
   validation {
-    condition     = null || can(regex("^vpc-[a-f0-9]+$", var.vpc_id))
+    condition     = var.vpc_id == "" || can(regex("^vpc-[a-f0-9]+$", var.vpc_id))
     error_message = "vpc_id must be a valid VPC ID (vpc-...)."
   }
 }
@@ -157,5 +157,5 @@ locals {
   admin_secret_reader_exemptions    = distinct(concat(var.admin_secret_access.readers, [local.caller_arn]))
   standard_secret_reader_exemptions = distinct(concat(var.standard_secret_access.readers, [local.caller_arn]))
 
-  vpc_id = var.vpc_id != null ? var.vpc_id : data.aws_subnet.first[0].vpc_id
+  vpc_id = var.vpc_id != "" ? var.vpc_id : data.aws_subnet.first[0].vpc_id
 }

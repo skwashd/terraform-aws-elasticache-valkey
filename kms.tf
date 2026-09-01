@@ -43,12 +43,13 @@ data "aws_iam_policy_document" "kms" {
   statement {
     sid = "DelegateCryptoToIam"
     actions = [
-      "kms:Encrypt",
       "kms:Decrypt",
-      "kms:ReEncrypt*",
+      "kms:Describe*",
+      "kms:Encrypt",
       "kms:GenerateDataKey*",
-      "kms:DescribeKey",
+      "kms:Get*",
       "kms:List*",
+      "kms:ReEncrypt*",
     ]
     resources = ["*"]
 
